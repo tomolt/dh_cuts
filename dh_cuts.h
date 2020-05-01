@@ -110,7 +110,7 @@ enum { THROW, ASSERT };
 
 #define NO_LINENO -1
 
-static int const caught_signals[] = { SIGILL, SIGFPE, SIGSEGV, SIGBUS, SIGSYS, SIGPIPE, 0 };
+static int const dh_caught_signals[] = { SIGILL, SIGFPE, SIGSEGV, SIGBUS, SIGSYS, SIGPIPE, 0 };
 
 struct dh_this {
 	sigjmp_buf *crash_jump;
@@ -128,7 +128,7 @@ struct dh_sink {
 static struct dh_this dh_this;
 static struct dh_sink dh_sink;
 
-static char const *name_of_signal(int signal)
+static char const *dh_name_of_signal_(int signal)
 {
 	switch (signal) {
 		case SIGILL:  return "illegal instruction (SIGILL)";  break;
@@ -143,7 +143,7 @@ static char const *name_of_signal(int signal)
 	}
 }
 
-static void signal_handler(int signal)
+static void dh_signal_handler_(int signal)
 {
 	if (dh_this.crash_jump != NULL) {
 		if (signal == SIGFPE) {
@@ -165,12 +165,12 @@ void dh_init(FILE *pipe)
 	dh_sink.pipe = pipe;
 	struct sigaction action;
 	memset(&action, 0, sizeof(struct sigaction));
-	action.sa_handler = signal_handler;
+	action.sa_handler = dh_signal_handler_;
 	sigemptyset(&action.sa_mask);
 	/* TODO error checking */
 	int i;
-	for (i = 0; caught_signals[i] != 0; ++i) {
-		sigaction(caught_signals[i], &action, NULL);
+	for (i = 0; dh_caught_signals[i] != 0; ++i) {
+		sigaction(dh_caught_signals[i], &action, NULL);
 	}
 }
 
@@ -205,7 +205,7 @@ void dh_pop(void)
 		dh_sink.print_depth = dh_this.stack_depth;
 }
 
-static void print_nesting(int depth)
+static void dh_print_nesting_(int depth)
 {
 	int i;
 	for (i = 0; i < depth; ++i)
@@ -213,7 +213,7 @@ static void print_nesting(int depth)
 	fputs(TEXT_HIER, dh_sink.pipe);
 }
 
-static void report(int kind, int signal, int ln, char const *msg)
+static void dh_report_(int kind, int signal, int ln, char const *msg)
 {
 	char const *kind_name, *signal_name;
 	switch (kind) {
@@ -228,19 +228,19 @@ static void report(int kind, int signal, int ln, char const *msg)
 		case CRASH:
 			++dh_sink.crash_count;
 			kind_name = "CRASH";
-			signal_name = name_of_signal(signal);
+			signal_name = dh_name_of_signal_(signal);
 			break;
 	}
 
 	int depth = dh_sink.print_depth;
 	while (depth < dh_this.stack_depth) {
-		print_nesting(depth);
+		dh_print_nesting_(depth);
 		fputs(dh_this.stack[depth], dh_sink.pipe);
 		fputs("\n", dh_sink.pipe);
 		++depth;
 	}
 	dh_sink.print_depth = dh_this.stack_depth;
-	print_nesting(dh_sink.print_depth);
+	dh_print_nesting_(dh_sink.print_depth);
 	fprintf(dh_sink.pipe, "triggered %s", signal_name);
 	if (ln != NO_LINENO) {
 		fprintf(dh_sink.pipe, " in line %03d", ln);
@@ -254,7 +254,7 @@ static void report(int kind, int signal, int ln, char const *msg)
 void dh_branch_beg_(int signal, sigjmp_buf *my_jmp, struct dh_branch_saves_ *s)
 {
 	if (signal) {
-		report(CRASH, signal, NO_LINENO, NULL);
+		dh_report_(CRASH, signal, NO_LINENO, NULL);
 	} else {
 		*s = (struct dh_branch_saves_){dh_this.stack_depth, (void *)dh_this.crash_jump};
 		dh_this.crash_jump = my_jmp;
@@ -280,14 +280,14 @@ void dh_throw_(int ln, char const *format, ...)
 	vsnprintf(str, MAX_NAME_LENGTH, format, va);
 	va_end(va);
 
-	report(FAIL, THROW, ln, str);
+	dh_report_(FAIL, THROW, ln, str);
 
 	free(str);
 }
 
 void dh_assert_(int ln, int cond, char const *str)
 {
-	if (!cond) report(FAIL, ASSERT, ln, str);
+	if (!cond) dh_report_(FAIL, ASSERT, ln, str);
 }
 
 void dh_assertiq_(int ln, long long a, long long b, char const *str)
