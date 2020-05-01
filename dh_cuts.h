@@ -44,7 +44,6 @@ struct dh_branch_saves_ {
 };
 
 void dh_init(FILE *pipe);
-int  dh_ismtsafe(void);
 
 void dh_summarize(void);
 
@@ -103,22 +102,11 @@ void dh_branch_end_(struct dh_branch_saves_ *s);
 
 #endif
 
-#if (__STDC_VERSION__ >= 201112L) && (!defined __STDC_NO_THREADS__)
-# define HAVE_THREADS 1
-#else
-# define HAVE_THREADS 0
-#endif
-
 #include <stdlib.h>
 #include <stdarg.h>
 #include <string.h>
 
 #include <signal.h>
-#include <float.h>
-
-#if HAVE_THREADS
-# include <threads.h>
-#endif
 
 #define MAX_NAME_LENGTH 200
 #define MAX_DEPTH 50
@@ -141,9 +129,6 @@ struct dh_sink {
 	int print_depth;
 	int error_count;
 	int crash_count;
-#if HAVE_THREADS
-	mtx_t mutex;
-#endif
 };
 
 static struct dh_this dh_this;
@@ -166,7 +151,6 @@ static char const *name_of_signal(int signal)
 
 static void signal_handler(int signal)
 {
-	/* TODO make thread-safe */
 	if (dh_this.crash_jump != NULL) {
 		if (signal == SIGFPE) {
 			/* source: https://msdn.microsoft.com/en-us/library/xdkz3x12.aspx */
@@ -184,9 +168,6 @@ static void signal_handler(int signal)
 
 void dh_init(FILE *pipe)
 {
-#if HAVE_THREADS
-	mtx_init(&dh_sink.mutex, mtx_plain);
-#endif
 	dh_sink.pipe = pipe;
 	struct sigaction action;
 	memset(&action, 0, sizeof(struct sigaction));
@@ -199,17 +180,8 @@ void dh_init(FILE *pipe)
 	}
 }
 
-int dh_ismtsafe(void)
-{
-	return HAVE_THREADS;
-}
-
 void dh_summarize(void)
 {
-#if HAVE_THREADS
-	mtx_lock(&dh_sink.mutex);
-#endif
-
 #if !DH_OPTION_PEDANTIC
 	if (dh_sink.error_count != 0 || dh_sink.crash_count != 0)
 #endif
@@ -218,10 +190,6 @@ void dh_summarize(void)
 			TEXT_LINE " %d failures, %d crashes " TEXT_LINE "\n",
 			dh_sink.error_count, dh_sink.crash_count);
 	}
-
-#if HAVE_THREADS
-	mtx_unlock(&dh_sink.mutex);
-#endif
 }
 
 void dh_push(char const *format, ...)
@@ -253,10 +221,6 @@ static void print_nesting(int depth)
 
 static void report(int kind, int signal, int ln, char const *msg)
 {
-#if HAVE_THREADS
-	mtx_lock(&dh_sink.mutex);
-#endif
-
 	char const *kind_name, *signal_name;
 	switch (kind) {
 		case FAIL:
@@ -291,10 +255,6 @@ static void report(int kind, int signal, int ln, char const *msg)
 		fprintf(dh_sink.pipe, ": %s", msg);
 	}
 	fprintf(dh_sink.pipe, "\t\t" TEXT_ARROW " %s\n", kind_name);
-
-#if HAVE_THREADS
-	mtx_unlock(&dh_sink.mutex);
-#endif
 }
 
 void dh_branch_beg_(int signal, sigjmp_buf *my_jmp, struct dh_branch_saves_ *s)
