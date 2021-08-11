@@ -36,8 +36,9 @@
 #include <stdio.h>
 
 struct dh_branch {
-	int   saved_depth;
-	void *saved_jump;
+	sigjmp_buf  my_jump;
+	sigjmp_buf *saved_jump;
+	int         saved_depth;
 };
 
 void dh_init(FILE *outfile);
@@ -47,16 +48,15 @@ void dh_summarize(void);
 void dh_push(const char *format, ...);
 void dh_pop (void);
 
-#define dh_branch(prog) do {                               \
-		struct dh_branch branch;                   \
-		sigjmp_buf       my_jump;                  \
-		int              code;                     \
-		code = sigsetjmp(my_jump, 1);              \
-		if (!code) {                               \
-			dh_branch_beg_(&branch, &my_jump); \
-			{ prog }                           \
-		}                                          \
-		dh_branch_end_(&branch);                   \
+#define dh_branch(prog) do {                         \
+		struct dh_branch branch;             \
+		int              code;               \
+		code = sigsetjmp(branch.my_jump, 1); \
+		if (!code) {                         \
+			dh_branch_beg_(&branch);     \
+			{ prog }                     \
+		}                                    \
+		dh_branch_end_(&branch);             \
 	} while (0);
 
 #ifndef DH_OPTION_EPSILON
@@ -77,7 +77,7 @@ void dh_assert_    (int ln, int cond, const char *str);
 void dh_assertiq_  (int ln, long long a, long long b, const char *str);
 void dh_assertfq_  (int ln, double a, double b, double e, const char *str);
 void dh_assertsq_  (int ln, const char *a, const char *b, const char *str);
-void dh_branch_beg_(struct dh_branch *branch, sigjmp_buf *my_jump);
+void dh_branch_beg_(struct dh_branch *branch);
 void dh_branch_end_(struct dh_branch *branch);
 
 #endif
@@ -277,11 +277,11 @@ dh_pop(void)
 }
 
 void
-dh_branch_beg_(struct dh_branch *branch, sigjmp_buf *my_jump)
+dh_branch_beg_(struct dh_branch *branch)
 {
 	branch->saved_depth = dh_state.stack_depth;
 	branch->saved_jump  = dh_state.crash_jump;
-	dh_state.crash_jump = my_jump;
+	dh_state.crash_jump = &branch->my_jump;
 }
 
 void
