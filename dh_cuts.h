@@ -209,6 +209,7 @@ dh_report_(int kind, int signal, int ln, const char *msg)
 		fprintf(dh_sink.file, ": %s", msg);
 	}
 	fprintf(dh_sink.file, "\t\t" DH_TEXT_ARROW " %s\n", kind_name);
+	fflush(dh_sink.file);
 }
 
 static void
@@ -247,6 +248,7 @@ dh_summarize(void)
 		fprintf(dh_sink.file,
 		        DH_TEXT_LINE " %d failures, %d crashes " DH_TEXT_LINE "\n",
 		        dh_sink.error_count, dh_sink.crash_count);
+		fflush(dh_sink.file);
 	}
 }
 

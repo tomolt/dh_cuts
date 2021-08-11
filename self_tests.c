@@ -36,7 +36,7 @@ main()
 	dh_init(stdout);
 	dh_push("dh_cuts self-tests");
 	test_crash_recovery();
-	dh_branch( *(int*)0=1; )
+	/* dh_branch( *(int*)0=1; ) */ 
 	dh_pop();
 	dh_summarize();
 	return EXIT_SUCCESS;
