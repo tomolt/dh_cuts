@@ -63,7 +63,7 @@ void dh_pop (void);
 # define DH_OPTION_EPSILON 0.00001
 #endif
 
-#define dh_throw(format, ...) dh_throw_(__LINE__, format, __VA_ARGS__)
+#define dh_throw(...)         dh_throw_(__LINE__, __VA_ARGS__)
 #define dh_assert(cond)       dh_assert_(__LINE__, cond, #cond)
 #define dh_assertiq(a, b)     dh_assertiq_(__LINE__, a, b, #a "==" #b)
 #define dh_assertfq(a, b)     dh_assertfq_(__LINE__, a, b, DH_OPTION_EPSILON, #a "==" #b)
@@ -227,8 +227,12 @@ dh_signal_handler_(int signal)
 void
 dh_init(FILE *outfile)
 {
+	/* reset global state */
+	memset(&dh_state, 0, sizeof dh_state);
+	memset(&dh_sink,  0, sizeof dh_sink);
 	dh_sink.file = outfile;
 
+	/* register signal handlers */
 	struct sigaction action;
 	memset(&action, 0, sizeof action);
 	action.sa_handler = dh_signal_handler_;
@@ -307,8 +311,8 @@ dh_throw_(int ln, const char *format, ...)
 	va_end(va);
 
 	dh_report_(DH_FAIL, DH_THROW, ln, str);
-
 	free(str);
+	dh_forfeit_(1);
 }
 
 void
@@ -316,6 +320,7 @@ dh_assert_(int ln, int cond, const char *str)
 {
 	if (!cond) {
 		dh_report_(DH_FAIL, DH_ASSERT, ln, str);
+		dh_forfeit_(1);
 	}
 }
 
