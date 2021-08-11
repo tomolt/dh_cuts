@@ -47,17 +47,17 @@ void dh_summarize(void);
 void dh_push(const char *format, ...);
 void dh_pop (void);
 
-#define dh_branch(prog) {                                \
-		struct dh_branch branch;                 \
-		sigjmp_buf       my_jump;                \
-		int              code;                   \
-		code = sigsetjmp(my_jump, 1);            \
-		dh_branch_beg_(code, &my_jump, &branch); \
-		if (!code) {                             \
-			prog                             \
-		}                                        \
-		dh_branch_end_(&branch);                 \
-	}
+#define dh_branch(prog) do {                               \
+		struct dh_branch branch;                   \
+		sigjmp_buf       my_jump;                  \
+		int              code;                     \
+		code = sigsetjmp(my_jump, 1);              \
+		if (!code) {                               \
+			dh_branch_beg_(&branch, &my_jump); \
+			{ prog }                           \
+		}                                          \
+		dh_branch_end_(&branch);                   \
+	} while (0);
 
 #ifndef DH_OPTION_EPSILON
 # define DH_OPTION_EPSILON 0.00001
@@ -77,7 +77,7 @@ void dh_assert_    (int ln, int cond, const char *str);
 void dh_assertiq_  (int ln, long long a, long long b, const char *str);
 void dh_assertfq_  (int ln, double a, double b, double e, const char *str);
 void dh_assertsq_  (int ln, const char *a, const char *b, const char *str);
-void dh_branch_beg_(int code, sigjmp_buf *my_jump, struct dh_branch *branch);
+void dh_branch_beg_(struct dh_branch *branch, sigjmp_buf *my_jump);
 void dh_branch_end_(struct dh_branch *branch);
 
 #endif
@@ -109,9 +109,8 @@ void dh_branch_end_(struct dh_branch *branch);
 #define DH_MAX_NAME_LENGTH 200
 #define DH_MAX_DEPTH       50
 #define DH_NO_LINENO       -1
-
-enum { DH_FAIL,  DH_CRASH  };
-enum { DH_THROW, DH_ASSERT };
+#define DH_CODE_ASSERT     11
+#define DH_CODE_THROW      12
 
 static int const dh_caught_signals[] = { SIGILL, SIGFPE, SIGSEGV, SIGBUS, SIGSYS, SIGPIPE, 0 };
 
@@ -147,8 +146,55 @@ dh_forfeit_(int code)
 	}
 }
 
+static void
+dh_print_nesting_(int depth)
+{
+	for (int i = 0; i < depth; ++i) {
+		fputs(DH_TEXT_DOTS, dh_sink.file);
+	}
+	fputs(DH_TEXT_HIER, dh_sink.file);
+}
+
+static void
+dh_report_(int code, int ln, const char *msg)
+{
+	const char *flag;
+	switch (code) {
+	case DH_CODE_ASSERT:
+		dh_sink.error_count++;
+		flag = "ASSERT";
+		break;
+	case DH_CODE_THROW:
+		dh_sink.error_count++;
+		flag = "THROW";
+		break;
+	default:
+		dh_sink.crash_count++;
+		flag = "CRASH";
+		break;
+	}
+
+	int depth = dh_sink.print_depth;
+	while (depth < dh_state.stack_depth) {
+		dh_print_nesting_(depth);
+		fputs(dh_state.stack[depth], dh_sink.file);
+		fputs("\n", dh_sink.file);
+		depth++;
+	}
+	dh_sink.print_depth = dh_state.stack_depth;
+
+	dh_print_nesting_(dh_sink.print_depth);
+	if (ln != DH_NO_LINENO) {
+		fprintf(dh_sink.file, "L%03d: ", ln);
+	}
+	fputs(msg, dh_sink.file);
+	fprintf(dh_sink.file, "\t\t" DH_TEXT_ARROW " %s\n", flag);
+
+	fflush(dh_sink.file);
+}
+
 static const char *
-dh_name_of_signal_(int signal)
+dh_signal_message_(int signal)
 {
 	switch (signal) {
 		case SIGILL:  return "illegal instruction (SIGILL)";  break;
@@ -164,55 +210,6 @@ dh_name_of_signal_(int signal)
 }
 
 static void
-dh_print_nesting_(int depth)
-{
-	for (int i = 0; i < depth; ++i) {
-		fputs(DH_TEXT_DOTS, dh_sink.file);
-	}
-	fputs(DH_TEXT_HIER, dh_sink.file);
-}
-
-static void
-dh_report_(int kind, int signal, int ln, const char *msg)
-{
-	const char *kind_name, *signal_name;
-	switch (kind) {
-	case DH_FAIL:
-		dh_sink.error_count++;
-		kind_name = "FAIL";
-		switch (signal) {
-			case DH_THROW:  signal_name = "throw";  break;
-			case DH_ASSERT: signal_name = "assert"; break;
-		}
-		break;
-	case DH_CRASH:
-		dh_sink.crash_count++;
-		kind_name   = "CRASH";
-		signal_name = dh_name_of_signal_(signal);
-		break;
-	}
-
-	int depth = dh_sink.print_depth;
-	while (depth < dh_state.stack_depth) {
-		dh_print_nesting_(depth);
-		fputs(dh_state.stack[depth], dh_sink.file);
-		fputs("\n", dh_sink.file);
-		depth++;
-	}
-	dh_sink.print_depth = dh_state.stack_depth;
-	dh_print_nesting_(dh_sink.print_depth);
-	fprintf(dh_sink.file, "triggered %s", signal_name);
-	if (ln != DH_NO_LINENO) {
-		fprintf(dh_sink.file, " in line %03d", ln);
-	}
-	if (msg != NULL) {
-		fprintf(dh_sink.file, ": %s", msg);
-	}
-	fprintf(dh_sink.file, "\t\t" DH_TEXT_ARROW " %s\n", kind_name);
-	fflush(dh_sink.file);
-}
-
-static void
 dh_signal_handler_(int signal)
 {
 	/* You're generally only supposed to call async-signal-safe functions
@@ -220,8 +217,9 @@ dh_signal_handler_(int signal)
 	 * But since we can never return from this handler, only long-jump out of it,
 	 * that really means we may not be able to perform any I/O after this point.
 	 * So we do the simplest thing possible: Just try it anyways and hope it still works. */
-	dh_report_(DH_CRASH, signal, DH_NO_LINENO, NULL);
-	dh_forfeit_(128 + signal);
+	int code = 128 + signal;
+	dh_report_(code, DH_NO_LINENO, dh_signal_message_(signal));
+	dh_forfeit_(code);
 }
 
 void
@@ -279,13 +277,11 @@ dh_pop(void)
 }
 
 void
-dh_branch_beg_(int code, sigjmp_buf *my_jump, struct dh_branch *branch)
+dh_branch_beg_(struct dh_branch *branch, sigjmp_buf *my_jump)
 {
-	if (!code) {
-		branch->saved_depth = dh_state.stack_depth;
-		branch->saved_jump  = dh_state.crash_jump;
-		dh_state.crash_jump = my_jump;
-	}
+	branch->saved_depth = dh_state.stack_depth;
+	branch->saved_jump  = dh_state.crash_jump;
+	dh_state.crash_jump = my_jump;
 }
 
 void
@@ -310,17 +306,17 @@ dh_throw_(int ln, const char *format, ...)
 	vsnprintf(str, DH_MAX_NAME_LENGTH, format, va);
 	va_end(va);
 
-	dh_report_(DH_FAIL, DH_THROW, ln, str);
+	dh_report_(DH_CODE_THROW, ln, str);
 	free(str);
-	dh_forfeit_(1);
+	dh_forfeit_(DH_CODE_THROW);
 }
 
 void
 dh_assert_(int ln, int cond, const char *str)
 {
 	if (!cond) {
-		dh_report_(DH_FAIL, DH_ASSERT, ln, str);
-		dh_forfeit_(1);
+		dh_report_(DH_CODE_ASSERT, ln, str);
+		dh_forfeit_(DH_CODE_ASSERT);
 	}
 }
 
