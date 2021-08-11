@@ -63,20 +63,20 @@ void dh_pop (void);
 # define DH_OPTION_EPSILON 0.00001
 #endif
 
-#define dh_throw(...)         dh_throw_(__LINE__, __VA_ARGS__)
-#define dh_assert(cond)       dh_assert_(__LINE__, cond, #cond)
-#define dh_assertiq(a, b)     dh_assertiq_(__LINE__, a, b, #a "==" #b)
-#define dh_assertfq(a, b)     dh_assertfq_(__LINE__, a, b, DH_OPTION_EPSILON, #a "==" #b)
-#define dh_assertsq(a, b)     dh_assertsq_(__LINE__, a, b, #a "==" #b)
-#define dh_asserteq(a, b, e)  dh_assertfq_(__LINE__, a, b, e, #a "==" #b)
+#define dh_throw(...)         dh_throw_(__FILE__, __LINE__, __VA_ARGS__)
+#define dh_assert(cond)       dh_assert_(__FILE__, __LINE__, cond, #cond)
+#define dh_assertiq(a, b)     dh_assertiq_(__FILE__, __LINE__, a, b, #a "==" #b)
+#define dh_assertfq(a, b)     dh_assertfq_(__FILE__, __LINE__, a, b, DH_OPTION_EPSILON, #a "==" #b)
+#define dh_assertsq(a, b)     dh_assertsq_(__FILE__, __LINE__, a, b, #a "==" #b)
+#define dh_asserteq(a, b, e)  dh_assertfq_(__FILE__, __LINE__, a, b, e, #a "==" #b)
 
 /* internal functions that have to be visible.
  * do not call these directly. */
-void dh_throw_     (int ln, const char *format, ...);
-void dh_assert_    (int ln, int cond, const char *str);
-void dh_assertiq_  (int ln, long long a, long long b, const char *str);
-void dh_assertfq_  (int ln, double a, double b, double e, const char *str);
-void dh_assertsq_  (int ln, const char *a, const char *b, const char *str);
+void dh_throw_     (const char *fn, int ln, const char *format, ...);
+void dh_assert_    (const char *fn, int ln, int cond, const char *str);
+void dh_assertiq_  (const char *fn, int ln, long long a, long long b, const char *str);
+void dh_assertfq_  (const char *fn, int ln, double a, double b, double e, const char *str);
+void dh_assertsq_  (const char *fn, int ln, const char *a, const char *b, const char *str);
 void dh_branch_beg_(struct dh_branch *branch);
 void dh_branch_end_(struct dh_branch *branch);
 
@@ -108,7 +108,6 @@ void dh_branch_end_(struct dh_branch *branch);
 
 #define DH_MAX_NAME_LENGTH 200
 #define DH_MAX_DEPTH       50
-#define DH_NO_LINENO       -1
 #define DH_CODE_ASSERT     11
 #define DH_CODE_THROW      12
 
@@ -156,8 +155,9 @@ dh_print_nesting_(int depth)
 }
 
 static void
-dh_report_(int code, int ln, const char *msg)
+dh_report_(int code, const char *fn, int ln, const char *msg)
 {
+	/* code-dependent bookkeeping */
 	const char *flag;
 	switch (code) {
 	case DH_CODE_ASSERT:
@@ -174,6 +174,7 @@ dh_report_(int code, int ln, const char *msg)
 		break;
 	}
 
+	/* print hierarchy trace */
 	int depth = dh_sink.print_depth;
 	while (depth < dh_state.stack_depth) {
 		dh_print_nesting_(depth);
@@ -183,13 +184,15 @@ dh_report_(int code, int ln, const char *msg)
 	}
 	dh_sink.print_depth = dh_state.stack_depth;
 
+	/* print message */
 	dh_print_nesting_(dh_sink.print_depth);
-	if (ln != DH_NO_LINENO) {
-		fprintf(dh_sink.file, "L%03d: ", ln);
+	if (fn != NULL) {
+		fprintf(dh_sink.file, "%s:%03d: ", fn, ln);
 	}
 	fputs(msg, dh_sink.file);
 	fprintf(dh_sink.file, "\t\t" DH_TEXT_ARROW " %s\n", flag);
 
+	/* flush to be sure */
 	fflush(dh_sink.file);
 }
 
@@ -218,7 +221,7 @@ dh_signal_handler_(int signal)
 	 * that really means we may not be able to perform any I/O after this point.
 	 * So we do the simplest thing possible: Just try it anyways and hope it still works. */
 	int code = 128 + signal;
-	dh_report_(code, DH_NO_LINENO, dh_signal_message_(signal));
+	dh_report_(code, NULL, -1, dh_signal_message_(signal));
 	dh_forfeit_(code);
 }
 
@@ -297,7 +300,7 @@ dh_branch_end_(struct dh_branch *branch)
 }
 
 void
-dh_throw_(int ln, const char *format, ...)
+dh_throw_(const char *fn, int ln, const char *format, ...)
 {
 	char *str = malloc(DH_MAX_NAME_LENGTH);
 
@@ -306,28 +309,28 @@ dh_throw_(int ln, const char *format, ...)
 	vsnprintf(str, DH_MAX_NAME_LENGTH, format, va);
 	va_end(va);
 
-	dh_report_(DH_CODE_THROW, ln, str);
+	dh_report_(DH_CODE_THROW, fn, ln, str);
 	free(str);
 	dh_forfeit_(DH_CODE_THROW);
 }
 
 void
-dh_assert_(int ln, int cond, const char *str)
+dh_assert_(const char *fn, int ln, int cond, const char *str)
 {
 	if (!cond) {
-		dh_report_(DH_CODE_ASSERT, ln, str);
+		dh_report_(DH_CODE_ASSERT, fn, ln, str);
 		dh_forfeit_(DH_CODE_ASSERT);
 	}
 }
 
 void
-dh_assertiq_(int ln, long long a, long long b, const char *str)
+dh_assertiq_(const char *fn, int ln, long long a, long long b, const char *str)
 {
-	dh_assert_(ln, a == b, str);
+	dh_assert_(fn, ln, a == b, str);
 }
 
 void
-dh_assertfq_(int ln, double a, double b, double e, const char *str)
+dh_assertfq_(const char *fn, int ln, double a, double b, double e, const char *str)
 {
 	/* because of the rounding behaviour of floating-point numbers, two expressions
 	 * that mathematically should evaluate to the same value can actually differ in
@@ -338,13 +341,13 @@ dh_assertfq_(int ln, double a, double b, double e, const char *str)
 	 * If you need exact comparison, you can always use dh_assert(a == b). */
 	double d = a - b;
 	if (d < 0.0) d = -d;
-	dh_assert_(ln, d <= e, str);
+	dh_assert_(fn, ln, d <= e, str);
 }
 
 void
-dh_assertsq_(int ln, const char *a, const char *b, const char *str)
+dh_assertsq_(const char *fn, int ln, const char *a, const char *b, const char *str)
 {
-	dh_assert_(ln, strcmp(a, b) != 0, str);
+	dh_assert_(fn, ln, strcmp(a, b) != 0, str);
 }
 
 #endif /* DH_IMPLEMENT_HERE */
