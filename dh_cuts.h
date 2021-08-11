@@ -1,8 +1,13 @@
 /* dh_cuts.h - Dynamic Hierarchy C Unit Testing System
+ *
+ * version 1.1
+ *
+ * You can find an up-to-date copy of this file under
+ * https://www.github.com/tomolt/dh_cuts
  * 
  * ISC License
  *
- * Copyright (c) 2018, 2019, 2020 Thomas Oltmann
+ * Copyright (c) 2018-2021 Thomas Oltmann
  * 
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -15,12 +20,10 @@
  * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
- *
- * You can find an up-to-date copy of this file under
- * https://www.github.com/tomolt/dh_cuts
  */
 
-/*
+/* You can customize the behaviour of dh_cuts
+ * by defining the following macros:
  * DH_OPTION_ASCII_ONLY
  * DH_OPTION_PEDANTIC
  * DH_OPTION_EPSILON
@@ -66,8 +69,8 @@ void dh_pop(void);
 #define dh_assertsq(a, b) dh_assertsq_(__LINE__, a, b, #a "==" #b)
 #define dh_asserteq(a, b, e) dh_assertfq_(__LINE__, a, b, e, #a "==" #b)
 
-/* internal functions that have to be visible. */
-/* do not call these directly. */
+/* internal functions that have to be visible.
+ * do not call these directly. */
 void dh_throw_(int ln, char const *format, ...);
 void dh_assert_(int ln, int cond, char const *str);
 void dh_assertiq_(int ln, long long a, long long b, char const *str);
@@ -137,8 +140,8 @@ static char const *dh_name_of_signal_(int signal)
 		case SIGBUS:  return "bus error (SIGBUS)";  break;
 		case SIGSYS:  return "illegal system call (SIGSYS)";  break;
 		case SIGPIPE: return "broken pipe (SIGPIPE)"; break;
-		/* the default path should never be taken, */
-		/* as only the above signals are actually caught. */
+		/* the default path should never be taken,
+		 * as only the above signals are actually caught. */
 		default: return "unknown signal"; break;
 	}
 }
@@ -150,13 +153,13 @@ static void dh_signal_handler_(int signal)
 			/* source: https://msdn.microsoft.com/en-us/library/xdkz3x12.aspx */
 			/* _fpreset(); TODO */
 		}
-		/* signal will never be 0, so we can pass it */
-		/* directly to longjmp without hesitation. */
-		/* source: /usr/include/bits/signum-generic.h */
+		/* signal will never be 0, so we can pass it
+		 * directly to longjmp without hesitation.
+		 * source: /usr/include/bits/signum-generic.h */
 		siglongjmp(*dh_this.crash_jump, signal);
 	} else {
-		/* if there is no recovery point, we can't do anything about the signal. */
-		/* this situation should not arise during normal operation. */
+		/* if there is no recovery point, we can't do anything about the signal.
+		 * this situation should not arise during normal operation. */
 	}
 }
 
@@ -167,9 +170,7 @@ void dh_init(FILE *pipe)
 	memset(&action, 0, sizeof(struct sigaction));
 	action.sa_handler = dh_signal_handler_;
 	sigemptyset(&action.sa_mask);
-	/* TODO error checking */
-	int i;
-	for (i = 0; dh_caught_signals[i] != 0; ++i) {
+	for (int i = 0; dh_caught_signals[i] != 0; ++i) {
 		sigaction(dh_caught_signals[i], &action, NULL);
 	}
 }
@@ -264,9 +265,9 @@ void dh_branch_beg_(int signal, sigjmp_buf *my_jmp, struct dh_branch_saves_ *s)
 void dh_branch_end_(struct dh_branch_saves_ *s)
 {
 	dh_this.crash_jump = s->saved_jump;
-	/* restore the stack in case of a crash. */
-	/* also helps recovering from missing dh_pop()'s, */
-	/* though you *really* shouldn't rely on this behaviour. */
+	/* restore the stack in case of a crash.
+	 * also helps recovering from missing dh_pop()'s,
+	 * though you *really* shouldn't rely on this behaviour. */
 	while (dh_this.stack_depth > s->saved_depth)
 		dh_pop();
 }
@@ -297,15 +298,15 @@ void dh_assertiq_(int ln, long long a, long long b, char const *str)
 
 void dh_assertfq_(int ln, double a, double b, double e, char const *str)
 {
-	/* because of the rounding behaviour of floating-point numbers, two expressions */
-	/* that mathematically should evaluate to the same value can actually differ in */
-	/* the lower digits. For user convenience dh_assertfq() therefore allow a small */
-	/* difference between a and b. */
-	/* If the user wants to use another epsilon value, he can either define his own */
-	/* epsilon via DH_OPTION_EPSILON or write his own macro wrapping dh_assertfq_(). */
-	/* If exact comparison is wanted, one can always use dh_assert(a == b). */
+	/* because of the rounding behaviour of floating-point numbers, two expressions
+	 * that mathematically should evaluate to the same value can actually differ in
+	 * the lower digits. For user convenience dh_assertfq() therefore allow a small
+	 * difference between a and b.
+	 * If you want to use another epsilon value, you can either define your own
+	 * epsilon via DH_OPTION_EPSILON or write your own macro wrapping dh_assertfq_().
+	 * If you need exact comparison, you can always use dh_assert(a == b). */
 	double d = a - b;
-	if (d < 0.0) d = -d; /* same as: d = fabsf(d); */
+	if (d < 0.0) d = -d;
 	dh_assert_(ln, d <= e, str);
 }
 
