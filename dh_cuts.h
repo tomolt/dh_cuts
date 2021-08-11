@@ -35,28 +35,28 @@
 #include <setjmp.h>
 #include <stdio.h>
 
-struct dh_branch_saves_ {
+struct dh_branch {
 	int   saved_depth;
 	void *saved_jump;
 };
 
-void dh_init(FILE *pipe);
+void dh_init(FILE *outfile);
 
 void dh_summarize(void);
 
 void dh_push(char const *format, ...);
 void dh_pop (void);
 
-#define dh_branch(code) {                            \
-		struct dh_branch_saves_ s;           \
-		sigjmp_buf              my_jmp;      \
-		int                     signal;      \
-		signal = sigsetjmp(my_jmp, 1);       \
-		dh_branch_beg_(signal, &my_jmp, &s); \
-		if (!signal) {                       \
-			code                         \
-		}                                    \
-		dh_branch_end_(&s);                  \
+#define dh_branch(code) {                                  \
+		struct dh_branch branch;                   \
+		sigjmp_buf       my_jump;                  \
+		int              signal;                   \
+		signal = sigsetjmp(my_jump, 1);            \
+		dh_branch_beg_(signal, &my_jump, &branch); \
+		if (!signal) {                             \
+			code                               \
+		}                                          \
+		dh_branch_end_(&branch);                   \
 	}
 
 #ifndef DH_OPTION_EPSILON
@@ -77,8 +77,8 @@ void dh_assert_    (int ln, int cond, char const *str);
 void dh_assertiq_  (int ln, long long a, long long b, char const *str);
 void dh_assertfq_  (int ln, double a, double b, double e, char const *str);
 void dh_assertsq_  (int ln, char const *a, char const *b, char const *str);
-void dh_branch_beg_(int signal, sigjmp_buf *my_jmp, struct dh_branch_saves_ *s);
-void dh_branch_end_(struct dh_branch_saves_ *s);
+void dh_branch_beg_(int signal, sigjmp_buf *my_jump, struct dh_branch *branch);
+void dh_branch_end_(struct dh_branch *branch);
 
 #endif
 
@@ -86,17 +86,17 @@ void dh_branch_end_(struct dh_branch_saves_ *s);
 
 #if DH_OPTION_ASCII_ONLY
 
-# define TEXT_DOTS  ".."
-# define TEXT_HIER  "\\ "
-# define TEXT_ARROW "<-"
-# define TEXT_LINE  "--"
+# define DH_TEXT_DOTS  ".."
+# define DH_TEXT_HIER  "\\ "
+# define DH_TEXT_ARROW "<-"
+# define DH_TEXT_LINE  "--"
 
 #else
 
-# define TEXT_DOTS  "\u2024\u2024"
-# define TEXT_HIER  "\u2514 "
-# define TEXT_ARROW "\u2190"
-# define TEXT_LINE  "\u2500\u2500"
+# define DH_TEXT_DOTS  "\u2024\u2024"
+# define DH_TEXT_HIER  "\u2514 "
+# define DH_TEXT_ARROW "\u2190"
+# define DH_TEXT_LINE  "\u2500\u2500"
 
 #endif /* DH_OPTION_ASCII_ONLY */
 
@@ -106,32 +106,32 @@ void dh_branch_end_(struct dh_branch_saves_ *s);
 
 #include <signal.h>
 
-#define MAX_NAME_LENGTH 200
-#define MAX_DEPTH       50
-#define NO_LINENO       -1
+#define DH_MAX_NAME_LENGTH 200
+#define DH_MAX_DEPTH       50
+#define DH_NO_LINENO       -1
 
-enum { FAIL,  CRASH  };
-enum { THROW, ASSERT };
+enum { DH_FAIL,  DH_CRASH  };
+enum { DH_THROW, DH_ASSERT };
 
 static int const dh_caught_signals[] = { SIGILL, SIGFPE, SIGSEGV, SIGBUS, SIGSYS, SIGPIPE, 0 };
 
-struct dh_this {
+struct dh_state {
 	sigjmp_buf *crash_jump;
 	int         stack_depth;
-	char const *stack[MAX_DEPTH];
+	char       *stack[DH_MAX_DEPTH];
 };
 
 struct dh_sink {
-	FILE *pipe;
+	FILE *file;
 	int   print_depth;
 	int   error_count;
 	int   crash_count;
 };
 
-static struct dh_this dh_this;
-static struct dh_sink dh_sink;
+static struct dh_state dh_state;
+static struct dh_sink  dh_sink;
 
-static char const *
+static const char *
 dh_name_of_signal_(int signal)
 {
 	switch (signal) {
@@ -150,7 +150,7 @@ dh_name_of_signal_(int signal)
 static void
 dh_signal_handler_(int signal)
 {
-	if (dh_this.crash_jump != NULL) {
+	if (dh_state.crash_jump != NULL) {
 		if (signal == SIGFPE) {
 			/* source: https://msdn.microsoft.com/en-us/library/xdkz3x12.aspx */
 			/* _fpreset(); TODO */
@@ -158,7 +158,7 @@ dh_signal_handler_(int signal)
 		/* signal will never be 0, so we can pass it
 		 * directly to longjmp without hesitation.
 		 * source: /usr/include/bits/signum-generic.h */
-		siglongjmp(*dh_this.crash_jump, signal);
+		siglongjmp(*dh_state.crash_jump, signal);
 	} else {
 		/* if there is no recovery point, we can't do anything about the signal.
 		 * this situation should not arise during normal operation. */
@@ -166,15 +166,15 @@ dh_signal_handler_(int signal)
 }
 
 void
-dh_init(FILE *pipe)
+dh_init(FILE *outfile)
 {
-	dh_sink.pipe = pipe;
+	dh_sink.file = outfile;
 
 	struct sigaction action;
 	memset(&action, 0, sizeof action);
 	action.sa_handler = dh_signal_handler_;
 	sigemptyset(&action.sa_mask);
-	for (int i = 0; dh_caught_signals[i] != 0; i++) {
+	for (int i = 0; dh_caught_signals[i]; i++) {
 		sigaction(dh_caught_signals[i], &action, NULL);
 	}
 }
@@ -186,55 +186,57 @@ dh_summarize(void)
 	if (dh_sink.error_count != 0 || dh_sink.crash_count != 0)
 #endif
 	{
-		fprintf(dh_sink.pipe,
-			TEXT_LINE " %d failures, %d crashes " TEXT_LINE "\n",
-			dh_sink.error_count, dh_sink.crash_count);
+		fprintf(dh_sink.file,
+		        DH_TEXT_LINE " %d failures, %d crashes " DH_TEXT_LINE "\n",
+		        dh_sink.error_count, dh_sink.crash_count);
 	}
 }
 
 void
 dh_push(char const *format, ...)
 {
-	char *str = malloc(MAX_NAME_LENGTH);
+	char *str = malloc(DH_MAX_NAME_LENGTH);
 
 	va_list va;
 	va_start(va, format);
-	vsnprintf(str, MAX_NAME_LENGTH, format, va);
+	vsnprintf(str, DH_MAX_NAME_LENGTH, format, va);
 	va_end(va);
 
-	dh_this.stack[dh_this.stack_depth++] = str;
+	dh_state.stack[dh_state.stack_depth++] = str;
 }
 
 void
 dh_pop(void)
 {
-	free((char *) dh_this.stack[--dh_this.stack_depth]);
-	if (dh_sink.print_depth > dh_this.stack_depth)
-		dh_sink.print_depth = dh_this.stack_depth;
+	free(dh_state.stack[--dh_state.stack_depth]);
+	if (dh_sink.print_depth > dh_state.stack_depth) {
+		dh_sink.print_depth = dh_state.stack_depth;
+	}
 }
 
 static void
 dh_print_nesting_(int depth)
 {
-	for (int i = 0; i < depth; ++i)
-		fputs(TEXT_DOTS, dh_sink.pipe);
-	fputs(TEXT_HIER, dh_sink.pipe);
+	for (int i = 0; i < depth; ++i) {
+		fputs(DH_TEXT_DOTS, dh_sink.file);
+	}
+	fputs(DH_TEXT_HIER, dh_sink.file);
 }
 
 static void
-dh_report_(int kind, int signal, int ln, char const *msg)
+dh_report_(int kind, int signal, int ln, const char *msg)
 {
-	char const *kind_name, *signal_name;
+	const char *kind_name, *signal_name;
 	switch (kind) {
-	case FAIL:
+	case DH_FAIL:
 		dh_sink.error_count++;
 		kind_name = "FAIL";
 		switch (signal) {
-			case THROW:  signal_name = "throw";  break;
-			case ASSERT: signal_name = "assert"; break;
+			case DH_THROW:  signal_name = "throw";  break;
+			case DH_ASSERT: signal_name = "assert"; break;
 		}
 		break;
-	case CRASH:
+	case DH_CRASH:
 		dh_sink.crash_count++;
 		kind_name   = "CRASH";
 		signal_name = dh_name_of_signal_(signal);
@@ -242,43 +244,44 @@ dh_report_(int kind, int signal, int ln, char const *msg)
 	}
 
 	int depth = dh_sink.print_depth;
-	while (depth < dh_this.stack_depth) {
+	while (depth < dh_state.stack_depth) {
 		dh_print_nesting_(depth);
-		fputs(dh_this.stack[depth], dh_sink.pipe);
-		fputs("\n", dh_sink.pipe);
+		fputs(dh_state.stack[depth], dh_sink.file);
+		fputs("\n", dh_sink.file);
 		depth++;
 	}
-	dh_sink.print_depth = dh_this.stack_depth;
+	dh_sink.print_depth = dh_state.stack_depth;
 	dh_print_nesting_(dh_sink.print_depth);
-	fprintf(dh_sink.pipe, "triggered %s", signal_name);
-	if (ln != NO_LINENO) {
-		fprintf(dh_sink.pipe, " in line %03d", ln);
+	fprintf(dh_sink.file, "triggered %s", signal_name);
+	if (ln != DH_NO_LINENO) {
+		fprintf(dh_sink.file, " in line %03d", ln);
 	}
 	if (msg != NULL) {
-		fprintf(dh_sink.pipe, ": %s", msg);
+		fprintf(dh_sink.file, ": %s", msg);
 	}
-	fprintf(dh_sink.pipe, "\t\t" TEXT_ARROW " %s\n", kind_name);
+	fprintf(dh_sink.file, "\t\t" DH_TEXT_ARROW " %s\n", kind_name);
 }
 
 void
-dh_branch_beg_(int signal, sigjmp_buf *my_jmp, struct dh_branch_saves_ *s)
+dh_branch_beg_(int signal, sigjmp_buf *my_jump, struct dh_branch *branch)
 {
 	if (signal) {
-		dh_report_(CRASH, signal, NO_LINENO, NULL);
+		dh_report_(DH_CRASH, signal, DH_NO_LINENO, NULL);
 	} else {
-		*s = (struct dh_branch_saves_) { dh_this.stack_depth, (void *) dh_this.crash_jump };
-		dh_this.crash_jump = my_jmp;
+		branch->saved_depth = dh_state.stack_depth;
+		branch->saved_jump  = dh_state.crash_jump;
+		dh_state.crash_jump = my_jump;
 	}
 }
 
 void
-dh_branch_end_(struct dh_branch_saves_ *s)
+dh_branch_end_(struct dh_branch *branch)
 {
-	dh_this.crash_jump = s->saved_jump;
+	dh_state.crash_jump = branch->saved_jump;
 	/* restore the stack in case of a crash.
 	 * also helps recovering from missing dh_pop()'s,
 	 * though you *really* shouldn't rely on this behaviour. */
-	while (dh_this.stack_depth > s->saved_depth) {
+	while (dh_state.stack_depth > branch->saved_depth) {
 		dh_pop();
 	}
 }
@@ -286,14 +289,14 @@ dh_branch_end_(struct dh_branch_saves_ *s)
 void
 dh_throw_(int ln, char const *format, ...)
 {
-	char *str = malloc(MAX_NAME_LENGTH);
+	char *str = malloc(DH_MAX_NAME_LENGTH);
 
 	va_list va;
 	va_start(va, format);
-	vsnprintf(str, MAX_NAME_LENGTH, format, va);
+	vsnprintf(str, DH_MAX_NAME_LENGTH, format, va);
 	va_end(va);
 
-	dh_report_(FAIL, THROW, ln, str);
+	dh_report_(DH_FAIL, DH_THROW, ln, str);
 
 	free(str);
 }
@@ -301,7 +304,7 @@ dh_throw_(int ln, char const *format, ...)
 void
 dh_assert_(int ln, int cond, char const *str)
 {
-	if (!cond) dh_report_(FAIL, ASSERT, ln, str);
+	if (!cond) dh_report_(DH_FAIL, DH_ASSERT, ln, str);
 }
 
 void
