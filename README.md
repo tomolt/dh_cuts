@@ -102,7 +102,7 @@ There are a handful of other features to *dh_cuts* that make it more practical:
   vs failed checks.
 
 - If you don't want the output to include fancy Unicode sequences, you
-  can define `DH_OPTION_ASCII_ONLY` as 1 before including `dh_cuts.h`.
+  can define `DH_OPTION_ASCII_ONLY` before including `dh_cuts.h`.
 
 - The entire thing is just a tiny single header library, so you can
 simply copy-paste it if you want, no dependency management neccessary.

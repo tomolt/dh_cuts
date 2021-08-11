@@ -24,9 +24,10 @@
 
 /* You can customize the behaviour of dh_cuts
  * by defining the following macros:
- * DH_OPTION_ASCII_ONLY
- * DH_OPTION_PEDANTIC
- * DH_OPTION_EPSILON
+ * DH_OPTION_ASCII_ONLY -- if defined, dh_cuts will only print ASCII letters
+ * DH_OPTION_PEDANTIC   -- if defined, dh_summarize() will always print a summary
+ * DH_OPTION_FAIL_HARD  -- if defined, dh_branch() won't be performing any crash recovery
+ * DH_OPTION_EPSILON    -- if defined, overwrites default epsilon for float-comparisons
  */
 
 #ifndef DH_CUTS_H
@@ -84,7 +85,7 @@ void dh_branch_end_(struct dh_branch *branch);
 
 #ifdef DH_IMPLEMENT_HERE
 
-#if DH_OPTION_ASCII_ONLY
+#ifdef DH_OPTION_ASCII_ONLY
 
 # define DH_TEXT_DOTS  ".."
 # define DH_TEXT_HIER  "\\ "
@@ -132,6 +133,7 @@ static struct dh_sink  dh_sink;
 static void
 dh_forfeit_(int code)
 {
+#ifndef DH_OPTION_FAIL_HARD
 	if (dh_state.crash_jump != NULL) {
 		if (code == 128 + SIGFPE) {
 			/* source: https://msdn.microsoft.com/en-us/library/xdkz3x12.aspx */
@@ -140,7 +142,9 @@ dh_forfeit_(int code)
 		/* code will never be 0, so we can pass it
 		 * directly to longjmp without hesitation. */
 		siglongjmp(*dh_state.crash_jump, code);
-	} else {
+	} else
+#endif /* DH_OPTION_FAIL_HARD */
+	{
 		exit(code);
 	}
 }
@@ -246,7 +250,7 @@ dh_init(FILE *outfile)
 void
 dh_summarize(void)
 {
-#if !DH_OPTION_PEDANTIC
+#ifndef DH_OPTION_PEDANTIC
 	if (dh_sink.error_count != 0 || dh_sink.crash_count != 0)
 #endif
 	{

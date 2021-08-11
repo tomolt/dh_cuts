@@ -1,3 +1,7 @@
+# See LICENSE file for copyright and license details.
+
+# Portable Makefile for dh_cuts' self-test testsuite.
+
 CC=cc
 LD=cc
 CFLAGS= -g -pedantic -Wall -Wextra

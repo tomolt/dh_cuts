@@ -1,4 +1,6 @@
-/* A test suite for dh_cuts, implemented with dh_cuts.
+/* See LICENSE file for copyright and license details.
+ * 
+ * A test suite for dh_cuts, implemented with dh_cuts.
  * Weirdness ensues.
  */
 
