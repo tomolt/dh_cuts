@@ -1,13 +1,13 @@
 /* dh_cuts.h - Dynamic Hierarchy C Unit Testing System
  *
- * version 1.1
+ * version 1.1a
  *
  * You can find an up-to-date copy of this file under
  * https://www.github.com/tomolt/dh_cuts
  * 
  * ISC License
  *
- * Copyright (c) 2018-2021 Thomas Oltmann
+ * Copyright (c) 2018-2023 Thomas Oltmann
  * 
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -351,7 +351,7 @@ dh_assertfq_(const char *fn, int ln, double a, double b, double e, const char *s
 void
 dh_assertsq_(const char *fn, int ln, const char *a, const char *b, const char *str)
 {
-	dh_assert_(fn, ln, strcmp(a, b) != 0, str);
+	dh_assert_(fn, ln, strcmp(a, b) == 0, str);
 }
 
 #endif /* DH_IMPLEMENT_HERE */
